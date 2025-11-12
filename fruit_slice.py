@@ -133,6 +133,84 @@ for basename in ("petir.mp3", "petir.mp3", "thunder.mp3", "thunder.wav"):
     if combo_sound:
         break
 
+# load game over sound if present (case variants)
+for name in ("gameover.mp3", "gameover.mp3", "gameover.mp3", "gameover.mp3", "gameover.mp3"):
+    for p in (name, os.path.join("sound", name)):
+        if os.path.exists(p):
+            try:
+                gameover_sound = pygame.mixer.Sound(p)
+                # we'll set volume later when playing to match UI
+                break
+            except Exception:
+                gameover_sound = None
+                break
+    if gameover_sound:
+        break
+
+# fallback: search sound folder for any filename containing "gameover" (case-insensitive)
+if not globals().get('gameover_sound'):
+    try:
+        sound_dir = os.path.join(os.path.dirname(__file__), 'sound') if '__file__' in globals() else 'sound'
+        if os.path.isdir(sound_dir):
+            for fname in sorted(os.listdir(sound_dir)):
+                if 'gameover' in fname.lower():
+                    p = os.path.join(sound_dir, fname)
+                    try:
+                        gameover_sound = pygame.mixer.Sound(p)
+                        break
+                    except Exception:
+                        gameover_sound = None
+                        continue
+    except Exception:
+        pass
+
+# debug: (removed) gameover_sound load verified during development
+
+# menu selection / UI click sound (pilihmenu)
+menu_select_sound = None
+for name in ("pilihmenu.mp3", "pilihmenu.mp3"):
+    for p in (name, os.path.join("sound", name)):
+        if os.path.exists(p):
+            try:
+                menu_select_sound = pygame.mixer.Sound(p)
+                menu_select_sound.set_volume(0.6)
+                break
+            except Exception:
+                menu_select_sound = None
+                break
+    if menu_select_sound:
+        break
+
+# coin pickup sound (getkoin)
+getkoin_sound = None
+for name in ("getkoin.mp3", "getkoin.wav"):
+    for p in (name, os.path.join("sound", name)):
+        if os.path.exists(p):
+            try:
+                getkoin_sound = pygame.mixer.Sound(p)
+                getkoin_sound.set_volume(0.85)
+                break
+            except Exception:
+                getkoin_sound = None
+                break
+    if getkoin_sound:
+        break
+
+# purchase success sound (berhasilbeli)
+berhasilbeli_sound = None
+for name in ("berhasilbeli.mp3", "berhasilbeli.wav"):
+    for p in (name, os.path.join("sound", name)):
+        if os.path.exists(p):
+            try:
+                berhasilbeli_sound = pygame.mixer.Sound(p)
+                berhasilbeli_sound.set_volume(0.9)
+                break
+            except Exception:
+                berhasilbeli_sound = None
+                break
+    if berhasilbeli_sound:
+        break
+
 lightning_threshold = 40  # px/frame
 lightning_duration = 6  # frames to show lightning after a fast move
 lightning_timer = 0
@@ -262,7 +340,6 @@ def load_coin_count():
                 coin_count = int(data.get("coin_count", 0))
                 # load purchased items and selected trail if present
                 purchased = data.get("purchased", [])
-                # populate global purchased_items
                 try:
                     purchased_items.clear()
                     for it in purchased:
@@ -272,10 +349,34 @@ def load_coin_count():
                 sel = data.get("selected_trail", None)
                 if sel:
                     try:
-                        # assign to global
                         globals()["selected_trail"] = sel
                     except Exception:
                         pass
+                # load additional persisted data if present
+                try:
+                    globals()["leaderboard"] = data.get("leaderboard", [])
+                except Exception:
+                    globals()["leaderboard"] = []
+                try:
+                    globals()["achievements"] = set(data.get("achievements", []))
+                except Exception:
+                    globals()["achievements"] = set()
+                try:
+                    globals()["events"] = data.get("events", {})
+                except Exception:
+                    globals()["events"] = {}
+                try:
+                    globals()["customization"] = data.get("customization", {"background": "default", "slice_sound": "default"})
+                except Exception:
+                    globals()["customization"] = {"background": "default", "slice_sound": "default"}
+                try:
+                    globals()["challenge_mode"] = bool(data.get("challenge_mode", False))
+                except Exception:
+                    globals()["challenge_mode"] = False
+                try:
+                    globals()["best_streak"] = int(data.get("best_streak", 0))
+                except Exception:
+                    globals()["best_streak"] = 0
         else:
             coin_count = 0
     except Exception:
@@ -284,6 +385,30 @@ def load_coin_count():
 def save_coin_count():
     try:
         tosave = {"coin_count": int(coin_count), "purchased": list(purchased_items), "selected_trail": globals().get("selected_trail", "default")}
+        try:
+            tosave["leaderboard"] = globals().get("leaderboard", [])
+        except Exception:
+            tosave["leaderboard"] = []
+        try:
+            tosave["achievements"] = list(globals().get("achievements", set()))
+        except Exception:
+            tosave["achievements"] = []
+        try:
+            tosave["events"] = globals().get("events", {})
+        except Exception:
+            tosave["events"] = {}
+        try:
+            tosave["customization"] = globals().get("customization", {"background": "default", "slice_sound": "default"})
+        except Exception:
+            tosave["customization"] = {"background": "default", "slice_sound": "default"}
+        try:
+            tosave["challenge_mode"] = bool(globals().get("challenge_mode", False))
+        except Exception:
+            tosave["challenge_mode"] = False
+        try:
+            tosave["best_streak"] = int(globals().get("best_streak", 0))
+        except Exception:
+            tosave["best_streak"] = 0
         with open(coin_data_path, "w", encoding="utf-8") as f:
             json.dump(tosave, f)
     except Exception:
@@ -295,11 +420,26 @@ try:
 except Exception:
     coin_count = 0
 
+# Persistent extras (ensure variables exist)
+leaderboard = globals().get("leaderboard", [])
+achievements = globals().get("achievements", set())
+events = globals().get("events", {})
+customization = globals().get("customization", {"background": "default", "slice_sound": "default"})
+challenge_mode = globals().get("challenge_mode", False)
+current_streak = 0
+best_streak = globals().get("best_streak", 0)
+
+# Game-over / failure state
+game_over_start_time = 0.0
+game_over_duration = 0.0
+game_over_active = False
+
 # --- Variabel Game ---
 fruits = []
 halves = []  # potongan buah setelah terbelah
 splashes = []  # juice splash particles
 particles = []  # small spark / fruit particles for explosion
+slice_effects = []  # quick per-slice visual overlays (fading cut lines)
 score = 0
 # Coins (shop-coin)
 coins = []  # coin entities thrown rarely like fruits
@@ -328,7 +468,7 @@ explosion_flash_timer = 0
 shockwaves = []
 screen_splatters = []  # full-screen splatter overlays (list of dicts)
 
-def spawn_fruit(count=1):
+def spawn_fruit(count=1, include_obstacle=False):
     """Spawn `count` fruits in a small cluster (default 1).
 
     When spawning multiple fruits, spread them slightly horizontally so they
@@ -353,6 +493,25 @@ def spawn_fruit(count=1):
         try:
             if throw_sound and sfx_on:
                 throw_sound.play()
+        except Exception:
+            pass
+    # optionally throw an obstacle together with the fruits so it appears in the same toss
+    if include_obstacle and boom_img:
+        try:
+            # place obstacle near the center of the cluster
+            obs_x = max(40, min(width - 120, base_x + random.randint(-24, 24)))
+            obs_y = y
+            obs_vx = random.randint(-6, 6)
+            obs_vy = random.randint(-26, -16)
+            obstacles.append({"x": obs_x, "y": obs_y, "vx": obs_vx, "vy": obs_vy, "img": boom_img, "type": "boom"})
+            # play throw sound for obstacle as well
+            try:
+                if boom_timer_sound and sfx_on:
+                    boom_timer_sound.play()
+                elif boom_sound and sfx_on:
+                    boom_sound.play()
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -422,46 +581,184 @@ def make_half_images(img):
     return left, right
 
 
-def split_fruit(fruit):
+def split_fruit(fruit, slice_angle=None):
     """Replace a fruit with two animated halves.
 
-    The halves list contains dicts with position, velocity, rotation, alpha and lifetime.
+    If `slice_angle` is provided (degrees, direction of the swipe), the fruit
+    will be split along the swipe line so the two halves separate perpendicular
+    to the swipe (i.e. a horizontal swipe -> top/bottom halves). This creates
+    a more natural split that follows the player's gesture.
     """
-    img = fruit["img"]
-    left_img, right_img = make_half_images(img)
-
-    fx = fruit["x"]
-    fy = fruit["y"]
+    img = fruit.get("img")
+    fx = fruit.get("x", 0)
+    fy = fruit.get("y", 0)
 
     life = 45  # frames until removed (~1.5s at 30fps)
 
-    # left half flies to left-up
-    halves.append({
-        "x": fx,
-        "y": fy,
-        "vx": random.uniform(-8.0, -4.0),
-        "vy": random.uniform(-12.0, -6.0),
-        "img": left_img,
-        "angle": random.uniform(-10, 10),
-        "avel": random.uniform(-5, -1),
-        "alpha": 255,
-        "life": life,
-        "max_life": life,
-    })
+    try:
+        if slice_angle is None:
+            # fallback to the old vertical half-split when no angle is known
+            left_img, right_img = make_half_images(img)
 
-    # right half flies to right-up
-    halves.append({
-        "x": fx + left_img.get_width(),
-        "y": fy,
-        "vx": random.uniform(4.0, 8.0),
-        "vy": random.uniform(-12.0, -6.0),
-        "img": right_img,
-        "angle": random.uniform(-10, 10),
-        "avel": random.uniform(1, 5),
-        "alpha": 255,
-        "life": life,
-        "max_life": life,
-    })
+            halves.append({
+                "x": fx,
+                "y": fy,
+                "vx": random.uniform(-8.0, -4.0),
+                "vy": random.uniform(-12.0, -6.0),
+                "img": left_img,
+                "angle": random.uniform(-10, 10),
+                "avel": random.uniform(-5, -1),
+                "alpha": 255,
+                "life": life,
+                "max_life": life,
+            })
+
+            halves.append({
+                "x": fx + left_img.get_width(),
+                "y": fy,
+                "vx": random.uniform(4.0, 8.0),
+                "vy": random.uniform(-12.0, -6.0),
+                "img": right_img,
+                "angle": random.uniform(-10, 10),
+                "avel": random.uniform(1, 5),
+                "alpha": 255,
+                "life": life,
+                "max_life": life,
+            })
+            return
+
+        # Split along the line defined by the swipe direction.
+        # Rotate the fruit so the swipe (cut) aligns horizontally, split top/bottom,
+        # then rotate halves back to original orientation.
+        ang = float(slice_angle)
+        theta = math.radians(ang)
+
+        # rotate so swipe direction aligns with +x axis
+        rotated = pygame.transform.rotate(img, -ang)
+        rw, rh = rotated.get_width(), rotated.get_height()
+
+        # split rotated image into top and bottom halves (cut line horizontal)
+        y_mid = rh // 2
+        try:
+            top_rot = rotated.subsurface((0, 0, rw, y_mid)).copy()
+            bottom_rot = rotated.subsurface((0, y_mid, rw, rh - y_mid)).copy()
+        except Exception:
+            # fallback: vertical halves if subsurface fails
+            left_img, right_img = make_half_images(img)
+            halves.append({
+                "x": fx,
+                "y": fy,
+                "vx": random.uniform(-8.0, -4.0),
+                "vy": random.uniform(-12.0, -6.0),
+                "img": left_img,
+                "angle": random.uniform(-10, 10),
+                "avel": random.uniform(-5, -1),
+                "alpha": 255,
+                "life": life,
+                "max_life": life,
+            })
+            halves.append({
+                "x": fx + left_img.get_width(),
+                "y": fy,
+                "vx": random.uniform(4.0, 8.0),
+                "vy": random.uniform(-12.0, -6.0),
+                "img": right_img,
+                "angle": random.uniform(-10, 10),
+                "avel": random.uniform(1, 5),
+                "alpha": 255,
+                "life": life,
+                "max_life": life,
+            })
+            return
+
+        # rotate halves back to match original orientation
+        top_final = pygame.transform.rotate(top_rot, ang)
+        bottom_final = pygame.transform.rotate(bottom_rot, ang)
+
+        # compute center offsets: in rotated coords the centers are +/- rh/4 in Y
+        offset_top_rot = (0.0, - (rh * 0.25))
+        offset_bottom_rot = (0.0, (rh * 0.25))
+
+        # rotate those offsets back by ang to world coordinates
+        def rotate_point(pt, a_rad):
+            x, y = pt
+            ca = math.cos(a_rad)
+            sa = math.sin(a_rad)
+            return (x * ca - y * sa, x * sa + y * ca)
+
+        otx, oty = rotate_point(offset_top_rot, theta)
+        obx, oby = rotate_point(offset_bottom_rot, theta)
+
+        # place halves centered around fruit center + offset
+        top_cx = fx + otx
+        top_cy = fy + oty
+        bot_cx = fx + obx
+        bot_cy = fy + oby
+
+        # compute a perpendicular (normal) unit vector to the swipe: this is the
+        # direction halves should fly apart along
+        nx = -math.sin(theta)
+        ny = math.cos(theta)
+
+        # spawn top half moving along -normal, bottom moving along +normal
+        speed1 = random.uniform(3.0, 8.0)
+        speed2 = random.uniform(3.0, 8.0)
+
+        halves.append({
+            "x": top_cx - top_final.get_width() / 2,
+            "y": top_cy - top_final.get_height() / 2,
+            "vx": (-nx) * speed1 + random.uniform(-1.5, 1.5),
+            "vy": (-ny) * speed1 + random.uniform(-6.0, -2.0),
+            "img": top_final,
+            "angle": random.uniform(-8, 8),
+            "avel": random.uniform(-6, -2),
+            "alpha": 255,
+            "life": life,
+            "max_life": life,
+        })
+
+        halves.append({
+            "x": bot_cx - bottom_final.get_width() / 2,
+            "y": bot_cy - bottom_final.get_height() / 2,
+            "vx": (nx) * speed2 + random.uniform(-1.5, 1.5),
+            "vy": (ny) * speed2 + random.uniform(-6.0, -2.0),
+            "img": bottom_final,
+            "angle": random.uniform(-8, 8),
+            "avel": random.uniform(2, 6),
+            "alpha": 255,
+            "life": life,
+            "max_life": life,
+        })
+    except Exception:
+        # defensive fallback: use simple vertical halves
+        try:
+            left_img, right_img = make_half_images(img)
+            halves.append({
+                "x": fx,
+                "y": fy,
+                "vx": random.uniform(-8.0, -4.0),
+                "vy": random.uniform(-12.0, -6.0),
+                "img": left_img,
+                "angle": random.uniform(-10, 10),
+                "avel": random.uniform(-5, -1),
+                "alpha": 255,
+                "life": life,
+                "max_life": life,
+            })
+            halves.append({
+                "x": fx + left_img.get_width(),
+                "y": fy,
+                "vx": random.uniform(4.0, 8.0),
+                "vy": random.uniform(-12.0, -6.0),
+                "img": right_img,
+                "angle": random.uniform(-10, 10),
+                "avel": random.uniform(1, 5),
+                "alpha": 255,
+                "life": life,
+                "max_life": life,
+            })
+        except Exception:
+            pass
 
 cap = cv2.VideoCapture(0)
 
@@ -611,7 +908,11 @@ while running:
                 spawn_coin()
             # small chance to spawn an obstacle (boom)
             elif boom_img and random.random() < 0.12:
+                # spawn obstacle alone
                 spawn_obstacle()
+            # occasionally include an obstacle in the same toss as fruits
+            elif boom_img and random.random() < 0.08:
+                spawn_fruit(count=num, include_obstacle=True)
             else:
                 spawn_fruit(count=num)
             spawn_timer = 0
@@ -627,7 +928,18 @@ while running:
             mx, my = pygame.mouse.get_pos()
             mouse_pressed = pygame.mouse.get_pressed()[0]
             if (finger_x and finger_y and home_rect.collidepoint(finger_x, finger_y)) or (home_rect.collidepoint(mx, my) and mouse_pressed):
-                # go back to menu and clear gameplay lists
+                # record score to local leaderboard, then go back to menu and clear gameplay lists
+                try:
+                    lb = globals().get("leaderboard", [])
+                    lb.append({"score": int(score), "date": time.strftime("%Y-%m-%d %H:%M:%S")})
+                    lb = sorted(lb, key=lambda x: x.get("score", 0), reverse=True)[:20]
+                    globals()["leaderboard"] = lb
+                    try:
+                        save_coin_count()
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
                 game_state = "menu"
                 finger_trail.clear()
                 fruits.clear()
@@ -637,6 +949,20 @@ while running:
                 obstacles.clear()
                 combo_popups.clear()
                 spawn_timer = 0
+                try:
+                    if menu_select_sound and sfx_on:
+                        menu_select_sound.play()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        # Draw score and multiplier while playing (top-left) so menu remains clean
+        try:
+            score_txt = font.render(f"Score: {score}", True, (255, 255, 255))
+            screen.blit(score_txt, (12, 12))
+            if multiplier > 1:
+                mul_txt = small_font.render(f"x{multiplier}", True, (255, 200, 60))
+                screen.blit(mul_txt, (12 + score_txt.get_width() + 8, 16))
         except Exception:
             pass
     else:
@@ -646,15 +972,71 @@ while running:
         screen.blit(overlay, (0, 0))
 
         if game_state == "menu":
+            # Responsive layout: title centered, buttons in the middle column, leaderboard in a right-side panel
+            title_y = 48
             title = font.render("Fruit Slice 🎮", True, (255, 255, 255))
-            screen.blit(title, ((width - title.get_width()) // 2, 60))
+            screen.blit(title, ((width - title.get_width()) // 2, title_y))
 
+            # compute safe areas and spacing
+            margin = 14
+            center_x = width // 2
+            # ensure main buttons are centered in the middle column
+            local_btn_x = center_x - btn_w // 2
+            local_btn_y_start = title_y + title.get_height() + 28
+
+            # Right-side leaderboard panel (anchored to top-right under coin UI)
+            try:
+                lb_w = 300
+                coin_h = (coin_img.get_height() if coin_img else 28)
+                # default placement under coin UI
+                lb_x = width - margin - lb_w
+                lb_y = margin + coin_h + 12
+                lb = globals().get("leaderboard", [])
+
+                # If leaderboard would overlap the center button column, move it below buttons
+                try:
+                    center_right = local_btn_x + btn_w
+                    last_btn_y = local_btn_y_start + (len(["Play","Shop","Settings","Quit"]) - 1) * (btn_h + btn_gap) + btn_h
+                    horiz_overlap = (lb_x < center_right + 24)
+                    if horiz_overlap:
+                        lb_y = last_btn_y + 32
+                except Exception:
+                    pass
+
+                # Draw a subtle semi-transparent panel for leaderboard
+                panel_h = max(72, 20 + (len(lb[:6]) * 20))
+                panel_surf = pygame.Surface((lb_w + 16, panel_h + 16), pygame.SRCALPHA)
+                panel_surf.fill((18, 18, 18, 200))
+                screen.blit(panel_surf, (lb_x - 8, lb_y - 8))
+
+                if lb:
+                    lb_title = small_font.render("Top Scores:", True, (255, 240, 180))
+                    screen.blit(lb_title, (lb_x + 8, lb_y))
+                    for idx, entry in enumerate(lb[:6]):
+                        txt = small_font.render(f"{idx+1}. {entry.get('score',0)}  {entry.get('date','')}", True, (220, 220, 220))
+                        screen.blit(txt, (lb_x + 8, lb_y + 24 + idx * 20))
+                else:
+                    no_lb = small_font.render("No scores yet", True, (180, 180, 180))
+                    screen.blit(no_lb, (lb_x + 8, lb_y + 8))
+            except Exception:
+                pass
+
+            # If the leaderboard panel would overlap the buttons, push the panel down
+            try:
+                # compute where the last button would end
+                last_btn_y = local_btn_y_start + (3) * (btn_h + btn_gap)
+                if lb_y < last_btn_y + 32:
+                    lb_y = last_btn_y + 48
+            except Exception:
+                pass
+
+            # Draw main menu buttons in the center column using the computed coordinates
             labels = ["Play", "Shop", "Settings", "Quit"]
             mouse_pressed = pygame.mouse.get_pressed()[0]
             mx, my = pygame.mouse.get_pos()
             for i, lbl in enumerate(labels):
-                ry = btn_y_start + i * (btn_h + btn_gap)
-                rect = pygame.Rect(btn_x, ry, btn_w, btn_h)
+                ry = local_btn_y_start + i * (btn_h + btn_gap)
+                rect = pygame.Rect(local_btn_x, ry, btn_w, btn_h)
                 inside = False
                 if finger_x and finger_y and rect.collidepoint(finger_x, finger_y):
                     inside = True
@@ -669,44 +1051,76 @@ while running:
                 # handle selection (finger point or mouse click)
                 if inside:
                     if lbl == "Play":
+                        # play menu select sound
+                        try:
+                            if menu_select_sound and sfx_on:
+                                menu_select_sound.play()
+                        except Exception:
+                            pass
                         game_state = "playing"
                         finger_trail.clear()
                         fruits.clear()
                         halves.clear()
                         spawn_timer = 0
                     elif lbl == "Shop":
+                        try:
+                            if menu_select_sound and sfx_on:
+                                menu_select_sound.play()
+                        except Exception:
+                            pass
                         game_state = "shop"
                     elif lbl == "Settings":
+                        try:
+                            if menu_select_sound and sfx_on:
+                                menu_select_sound.play()
+                        except Exception:
+                            pass
                         game_state = "settings"
                     elif lbl == "Quit":
+                        try:
+                            if menu_select_sound and sfx_on:
+                                menu_select_sound.play()
+                        except Exception:
+                            pass
                         running = False
 
         elif game_state == "settings":
             title = font.render("Settings", True, (255, 255, 255))
             screen.blit(title, ((width - title.get_width()) // 2, 60))
 
-            # music toggle
-            music_txt = font.render(f"Music: {'On' if music_on else 'Off'}", True, (255, 255, 255))
+            # music toggle - use smaller font and center text to avoid overflow
+            music_txt = small_font.render(f"Music: {'On' if music_on else 'Off'}", True, (255, 255, 255))
             music_rect = pygame.Rect(btn_x, btn_y_start, btn_w, btn_h)
             pygame.draw.rect(screen, (40, 40, 40), music_rect, border_radius=8)
-            screen.blit(music_txt, (music_rect.x + 12, music_rect.y + 12))
+            screen.blit(music_txt, (music_rect.x + (music_rect.w - music_txt.get_width()) // 2, music_rect.y + (music_rect.h - music_txt.get_height()) // 2))
 
-            # sfx toggle
-            sfx_txt = font.render(f"SFX: {'On' if sfx_on else 'Off'}", True, (255, 255, 255))
+            # sfx toggle - smaller font centered
+            sfx_txt = small_font.render(f"SFX: {'On' if sfx_on else 'Off'}", True, (255, 255, 255))
             sfx_rect = pygame.Rect(btn_x, btn_y_start + btn_h + btn_gap, btn_w, btn_h)
             pygame.draw.rect(screen, (40, 40, 40), sfx_rect, border_radius=8)
-            screen.blit(sfx_txt, (sfx_rect.x + 12, sfx_rect.y + 12))
+            screen.blit(sfx_txt, (sfx_rect.x + (sfx_rect.w - sfx_txt.get_width()) // 2, sfx_rect.y + (sfx_rect.h - sfx_txt.get_height()) // 2))
 
-            # back button
-            back_rect = pygame.Rect(btn_x, btn_y_start + 2 * (btn_h + btn_gap), btn_w, btn_h)
+            # challenge mode toggle (harder, faster fruits/obstacles) - use small font and allow label to wrap visually
+            challenge_txt = small_font.render(f"Challenge Mode: {'On' if globals().get('challenge_mode', False) else 'Off'}", True, (255, 255, 255))
+            challenge_rect = pygame.Rect(btn_x, btn_y_start + 2 * (btn_h + btn_gap), btn_w, btn_h)
+            pygame.draw.rect(screen, (40, 40, 40), challenge_rect, border_radius=8)
+            screen.blit(challenge_txt, (challenge_rect.x + (challenge_rect.w - challenge_txt.get_width()) // 2, challenge_rect.y + (challenge_rect.h - challenge_txt.get_height()) // 2))
+
+            # back button (moved down because of Challenge Mode toggle)
+            back_rect = pygame.Rect(btn_x, btn_y_start + 3 * (btn_h + btn_gap), btn_w, btn_h)
             pygame.draw.rect(screen, (80, 80, 80), back_rect, border_radius=8)
-            back_txt = font.render("Back", True, (255, 255, 255))
-            screen.blit(back_txt, (back_rect.x + (back_rect.w - back_txt.get_width()) // 2, back_rect.y + 12))
+            back_txt = small_font.render("Back", True, (255, 255, 255))
+            screen.blit(back_txt, (back_rect.x + (back_rect.w - back_txt.get_width()) // 2, back_rect.y + (back_rect.h - back_txt.get_height()) // 2))
 
             # handle toggles via finger or mouse
             mx, my = pygame.mouse.get_pos()
             clicked = pygame.mouse.get_pressed()[0]
             if (finger_x and finger_y and music_rect.collidepoint(finger_x, finger_y)) or (music_rect.collidepoint(mx, my) and clicked):
+                try:
+                    if menu_select_sound and sfx_on:
+                        menu_select_sound.play()
+                except Exception:
+                    pass
                 music_on = not music_on
                 if music_on:
                     try:
@@ -720,9 +1134,32 @@ while running:
                         pass
 
             if (finger_x and finger_y and sfx_rect.collidepoint(finger_x, finger_y)) or (sfx_rect.collidepoint(mx, my) and clicked):
+                try:
+                    if menu_select_sound and sfx_on:
+                        menu_select_sound.play()
+                except Exception:
+                    pass
                 sfx_on = not sfx_on
 
+            # handle Challenge toggle and Back button
+            if (finger_x and finger_y and challenge_rect.collidepoint(finger_x, finger_y)) or (challenge_rect.collidepoint(mx, my) and clicked):
+                try:
+                    if menu_select_sound and sfx_on:
+                        menu_select_sound.play()
+                except Exception:
+                    pass
+                globals()["challenge_mode"] = not globals().get("challenge_mode", False)
+                try:
+                    save_coin_count()
+                except Exception:
+                    pass
+
             if (finger_x and finger_y and back_rect.collidepoint(finger_x, finger_y)) or (back_rect.collidepoint(mx, my) and clicked):
+                try:
+                    if menu_select_sound and sfx_on:
+                        menu_select_sound.play()
+                except Exception:
+                    pass
                 game_state = "menu"
 
         elif game_state == "shop":
@@ -777,6 +1214,11 @@ while running:
                 if (finger_x and finger_y and btn_rect.collidepoint(finger_x, finger_y)) or (btn_rect.collidepoint(mx, my) and clicked):
                     # buy flow
                     if not owned:
+                        try:
+                            if menu_select_sound and sfx_on:
+                                menu_select_sound.play()
+                        except Exception:
+                            pass
                         if coin_count >= item["price"]:
                             coin_count -= item["price"]
                             purchased_items.add(item["id"])
@@ -785,10 +1227,21 @@ while running:
                             except Exception:
                                 pass
                             shop_msg = {"text": f"Bought {item['name']}!", "age": 0, "life": 90}
+                            # play purchase success sound if available
+                            try:
+                                if berhasilbeli_sound and sfx_on:
+                                    berhasilbeli_sound.play()
+                            except Exception:
+                                pass
                         else:
                             shop_msg = {"text": "Not enough coins", "age": 0, "life": 60}
                     else:
                         # select owned item
+                        try:
+                            if menu_select_sound and sfx_on:
+                                menu_select_sound.play()
+                        except Exception:
+                            pass
                         globals()["selected_trail"] = item["id"].replace("trail_", "")
                         try:
                             save_coin_count()
@@ -802,6 +1255,11 @@ while running:
             back_txt = font.render("Back", True, (255, 255, 255))
             screen.blit(back_txt, (back_rect.x + (back_rect.w - back_txt.get_width()) // 2, back_rect.y + 12))
             if (finger_x and finger_y and back_rect.collidepoint(finger_x, finger_y)) or (back_rect.collidepoint(mx, my) and clicked):
+                try:
+                    if menu_select_sound and sfx_on:
+                        menu_select_sound.play()
+                except Exception:
+                    pass
                 game_state = "menu"
 
         # (scrolling UI removed)
@@ -819,6 +1277,17 @@ while running:
             fx, fy = fruit["x"] + 40, fruit["y"] + 40
             dist = math.hypot(fx - finger_x, fy - finger_y)
             if dist < 40:
+                # compute slice angle from last two finger positions if available
+                slice_ang = None
+                try:
+                    if len(finger_trail) >= 2:
+                        x1, y1 = finger_trail[-2]
+                        x2, y2 = finger_trail[-1]
+                        dx = x2 - x1
+                        dy = y2 - y1
+                        slice_ang = math.degrees(math.atan2(dy, dx))
+                except Exception:
+                    slice_ang = None
                 # mainkan suara split (hanya saat buah benar-benar terbelah)
                 try:
                     if split_sound and sfx_on:
@@ -904,7 +1373,7 @@ while running:
                 except Exception:
                     pass
                 # buat potongan buah dan tambahkan skor
-                split_fruit(fruit)
+                split_fruit(fruit, slice_angle=slice_ang)
                 if fruit in fruits:
                     fruits.remove(fruit)
 
@@ -924,6 +1393,50 @@ while running:
 
                 # add score with multiplier
                 score += 1 * multiplier
+
+                # --- Events & Achievements: update daily progress and streaks ---
+                try:
+                    # daily slices counter (reset per day)
+                    today = time.strftime("%Y-%m-%d")
+                    ev = globals().get("events", {}) or {}
+                    if ev.get("last_date") != today:
+                        ev["last_date"] = today
+                        ev["slices_today"] = 0
+                        ev["rewarded_100"] = False
+                    ev["slices_today"] = ev.get("slices_today", 0) + 1
+                    globals()["events"] = ev
+                    # reward for 100 slices today
+                    if ev.get("slices_today", 0) >= 100 and not ev.get("rewarded_100", False):
+                        try:
+                            globals()["coin_count"] = globals().get("coin_count", 0) + 10
+                            ev["rewarded_100"] = True
+                            shop_msg = {"text": "Daily reward: +10 coins!", "age": 0, "life": 120}
+                        except Exception:
+                            pass
+
+                    # streaks / achievements
+                    globals()["current_streak"] = globals().get("current_streak", 0) + 1
+                    if globals().get("current_streak", 0) > globals().get("best_streak", 0):
+                        globals()["best_streak"] = globals().get("current_streak", 0)
+                    # award achievement badges for streaks
+                    try:
+                        ach = globals().get("achievements", set())
+                        if globals().get("current_streak", 0) >= 25 and "streak25" not in ach:
+                            ach.add("streak25")
+                            shop_msg = {"text": "Achievement: 25 streak!", "age": 0, "life": 120}
+                        if globals().get("current_streak", 0) >= 50 and "streak50" not in ach:
+                            ach.add("streak50")
+                            globals()["coin_count"] = globals().get("coin_count", 0) + 5
+                            shop_msg = {"text": "Achievement: 50 streak! +5 coins", "age": 0, "life": 140}
+                        globals()["achievements"] = ach
+                    except Exception:
+                        pass
+                    try:
+                        save_coin_count()
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
 
                 # spawn a combo popup ONLY on specific combo milestones: 3,7,11,... (3 + 4n)
                 try:
@@ -948,8 +1461,46 @@ while running:
                 except Exception:
                     pass
 
+                # spawn a quick slice visual effect (fading line) using the last two finger trail points
+                try:
+                    if len(finger_trail) >= 2:
+                        x1, y1 = finger_trail[-2]
+                        x2, y2 = finger_trail[-1]
+                        dx = x2 - x1
+                        dy = y2 - y1
+                        ang = math.degrees(math.atan2(dy, dx))
+                        midx = int((x1 + x2) / 2)
+                        midy = int((y1 + y2) / 2)
+                        # sample color from fruit center (or fallback)
+                        try:
+                            img_surf = fruit.get("img")
+                            if img_surf:
+                                iw, ih = img_surf.get_width(), img_surf.get_height()
+                                r, g, b, a = img_surf.get_at((min(iw-1, iw//2), min(ih-1, ih//2)))
+                                col = (r, g, b)
+                            else:
+                                col = (255, 255, 255)
+                        except Exception:
+                            col = (255, 255, 255)
+                        slice_effects.append({
+                            "x": midx,
+                            "y": midy,
+                            "angle": ang,
+                            "life": 18,
+                            "max_life": 18,
+                            "color": col,
+                            "length": int(max(40, math.hypot(dx, dy) * 1.8)),
+                        })
+                except Exception:
+                    pass
+
         # Hilangkan buah di bawah layar
         if fruit["y"] > height + 80:
+            try:
+                # missing this fruit -> reset current streak
+                globals()["current_streak"] = 0
+            except Exception:
+                pass
             if fruit in fruits:
                 fruits.remove(fruit)
 
@@ -1034,6 +1585,13 @@ while running:
                         "to_ui": True,
                     })
 
+                # play coin pickup sound if available
+                try:
+                    if getkoin_sound and sfx_on:
+                        getkoin_sound.play()
+                except Exception:
+                    pass
+
                 # increment coin counter and give a score bonus that respects the
                 # current multiplier. Coins double the base slice value.
                 try:
@@ -1054,6 +1612,42 @@ while running:
                     # base slice point is 1; coin gives 2x that, and multiplier applies
                     coin_score = int(1 * 2 * max(1, multiplier))
                     score += coin_score
+                except Exception:
+                    pass
+
+                # update events/streaks for coin slice as well
+                try:
+                    today = time.strftime("%Y-%m-%d")
+                    ev = globals().get("events", {}) or {}
+                    if ev.get("last_date") != today:
+                        ev["last_date"] = today
+                        ev["slices_today"] = 0
+                        ev["rewarded_100"] = False
+                    ev["slices_today"] = ev.get("slices_today", 0) + 1
+                    globals()["events"] = ev
+                    if ev.get("slices_today", 0) >= 100 and not ev.get("rewarded_100", False):
+                        try:
+                            globals()["coin_count"] = globals().get("coin_count", 0) + 10
+                            ev["rewarded_100"] = True
+                            shop_msg = {"text": "Daily reward: +10 coins!", "age": 0, "life": 120}
+                        except Exception:
+                            pass
+                    globals()["current_streak"] = globals().get("current_streak", 0) + 1
+                    if globals().get("current_streak", 0) > globals().get("best_streak", 0):
+                        globals()["best_streak"] = globals().get("current_streak", 0)
+                    # small achievement rewards
+                    try:
+                        ach = globals().get("achievements", set())
+                        if globals().get("current_streak", 0) >= 25 and "streak25" not in ach:
+                            ach.add("streak25")
+                            shop_msg = {"text": "Achievement: 25 streak!", "age": 0, "life": 120}
+                        globals()["achievements"] = ach
+                    except Exception:
+                        pass
+                    try:
+                        save_coin_count()
+                    except Exception:
+                        pass
                 except Exception:
                     pass
 
@@ -1170,20 +1764,58 @@ while running:
                 camera_shake_timer = 45
                 camera_shake_intensity = 14
 
-                # play explosion sound and penalize score
+                # if player's score is low, hitting a boom causes immediate game over
                 try:
-                    if boom_explosion_sound and sfx_on:
-                        boom_explosion_sound.play()
-                    elif boom_sound and sfx_on:
-                        boom_sound.play()
-                except Exception:
-                    pass
+                    if globals().get("score", 0) < 10:
+                        try:
+                            # prefer an explicit gameover sound if present
+                            if gameover_sound and sfx_on:
+                                try:
+                                    gameover_sound.set_volume(0.9)
+                                except Exception:
+                                    pass
+                                try:
+                                    gameover_sound.play()
+                                except Exception:
+                                    pass
+                            else:
+                                # fallback to boom/explosion audio if no dedicated gameover sound
+                                if boom_explosion_sound and sfx_on:
+                                    try:
+                                        boom_explosion_sound.play()
+                                    except Exception:
+                                        pass
+                                elif boom_sound and sfx_on:
+                                    try:
+                                        boom_sound.play()
+                                    except Exception:
+                                        pass
+                            # set fixed 5 second animation duration (user requested)
+                            game_over_duration = 5.0
+                        except Exception:
+                            pass
 
-                # deduct score penalty for slicing a boom
-                try:
-                    score -= 10
+                        # trigger game-over visual state synchronized to the sound
+                        game_over_start_time = time.time()
+                        game_over_active = True
+                        game_state = "gameover"
+                    else:
+                        # normal explosion sound and penalty when score is sufficient
+                        try:
+                            if boom_explosion_sound and sfx_on:
+                                boom_explosion_sound.play()
+                            elif boom_sound and sfx_on:
+                                boom_sound.play()
+                        except Exception:
+                            pass
+
+                        # deduct score penalty for slicing a boom
+                        try:
+                            score -= 10
+                        except Exception:
+                            # should not happen, but ignore if score not writable in scope
+                            pass
                 except Exception:
-                    # should not happen, but ignore if score not writable in scope
                     pass
 
                 # remove obstacle safely
@@ -1345,6 +1977,47 @@ while running:
             except Exception:
                 pass
 
+    # Draw per-slice visual effects (fading cut lines)
+    if slice_effects:
+        for ef in slice_effects[:]:
+            try:
+                ef["life"] -= 1
+                ratio = max(0.0, ef.get("life", 0) / float(max(1, ef.get("max_life", 1))))
+                alpha = int(220 * ratio)
+                length = ef.get("length", 120)
+                thickness = max(2, int(10 * ratio + 2))
+                # build a small surface for the cut line
+                surf = pygame.Surface((length, thickness * 3), pygame.SRCALPHA)
+                # draw several layered lines for glow
+                base_col = ef.get("color", (255, 255, 255))
+                for i in range(3):
+                    a = int(alpha * (0.5 if i == 0 else (0.35 if i == 1 else 0.18)))
+                    col = (base_col[0], base_col[1], base_col[2], a)
+                    w = thickness + (2 - i) * 2
+                    try:
+                        pygame.draw.line(surf, col, (0, surf.get_height() // 2), (length, surf.get_height() // 2), w)
+                    except Exception:
+                        pass
+
+                # rotate and blit centered at effect position
+                try:
+                    rotated = pygame.transform.rotate(surf, -ef.get("angle", 0))
+                    rect = rotated.get_rect(center=(int(ef.get("x", 0)), int(ef.get("y", 0))))
+                    screen.blit(rotated, rect.topleft)
+                except Exception:
+                    pass
+
+                if ef.get("life", 0) <= 0:
+                    try:
+                        slice_effects.remove(ef)
+                    except Exception:
+                        pass
+            except Exception:
+                try:
+                    slice_effects.remove(ef)
+                except Exception:
+                    pass
+
     # Draw any full-screen splatter overlays (fade over their life)
     if screen_splatters:
         for spl in screen_splatters[:]:
@@ -1488,13 +2161,7 @@ while running:
                 except Exception:
                     pass
 
-    # Tampilkan skor
-    text = font.render(f"Score: {score}", True, (255, 255, 255))
-    screen.blit(text, (10, 10))
-    # show multiplier badge if active
-    if multiplier > 1:
-        mul_text = small_font.render(f"x{multiplier}", True, (255, 200, 60))
-        screen.blit(mul_text, (10 + text.get_width() + 8, 14))
+    # NOTE: Score and multiplier are drawn only while playing (rendered earlier in the playing branch)
 
     # Draw coin UI at top-right
     try:
@@ -1520,6 +2187,55 @@ while running:
             cnt_x = coin_x - 10 - cnt_text.get_width()
             cnt_y = coin_y + (28 - cnt_text.get_height()) // 2
             screen.blit(cnt_text, (cnt_x, cnt_y))
+    except Exception:
+        pass
+
+    # --- Game over overlay & sync with gameover sound ---
+    try:
+        if game_over_active or game_state == "gameover":
+            start = game_over_start_time
+            dur = game_over_duration if game_over_duration and game_over_duration > 0 else 5.0
+            elapsed = max(0.0, time.time() - (start or time.time()))
+            t = min(max(elapsed / float(max(1e-6, dur)), 0.0), 1.0)
+
+            # draw a red overlay that fades out over the duration (no pulsing)
+            alpha = int(220 * (1.0 - t))
+            overlay = pygame.Surface((width, height), pygame.SRCALPHA)
+            overlay.fill((180, 20, 20, max(32, alpha)))
+            screen.blit(overlay, (0, 0))
+
+            # static GAME OVER text (no pulsing)
+            try:
+                go_text = combo_font.render("GAME OVER", True, (255, 255, 255))
+                sub = small_font.render("You hit a bomb!", True, (255, 230, 230))
+                go_text.set_alpha(max(120, alpha))
+                rect = go_text.get_rect(center=(width // 2, height // 2 - 20))
+                screen.blit(go_text, rect.topleft)
+                screen.blit(sub, ((width - sub.get_width()) // 2, rect.bottom + 6))
+            except Exception:
+                try:
+                    screen.blit(combo_font.render("GAME OVER", True, (255, 255, 255)), ((width - 300) // 2, height // 2 - 40))
+                except Exception:
+                    pass
+
+            # when the animation ends, return to menu and clear gameplay entities
+            if elapsed >= dur:
+                game_over_active = False
+                game_state = "menu"
+                try:
+                    fruits.clear()
+                    halves.clear()
+                    splashes.clear()
+                    particles.clear()
+                    coins.clear()
+                    obstacles.clear()
+                    combo_popups.clear()
+                except Exception:
+                    pass
+                try:
+                    save_coin_count()
+                except Exception:
+                    pass
     except Exception:
         pass
     pygame.display.flip()
