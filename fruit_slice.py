@@ -1076,6 +1076,16 @@ while running:
                         fruits.clear()
                         halves.clear()
                         spawn_timer = 0
+                        # ensure new players get a small starter coin balance
+                        try:
+                            if globals().get("coin_count", 0) < 5:
+                                globals()["coin_count"] = 5
+                                try:
+                                    save_coin_count()
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
                     elif lbl == "Shop":
                         try:
                             if menu_select_sound and sfx_on:
