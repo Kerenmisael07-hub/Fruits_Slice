@@ -581,7 +581,7 @@ def make_half_images(img):
     return left, right
 
 
-def split_fruit(fruit, slice_angle=None):
+def split_fruit(fruit, slice_angle=None, slice_speed=None):
     """Replace a fruit with two animated halves.
 
     If `slice_angle` is provided (degrees, direction of the swipe), the fruit
@@ -700,34 +700,48 @@ def split_fruit(fruit, slice_angle=None):
         nx = -math.sin(theta)
         ny = math.cos(theta)
 
-        # spawn top half moving along -normal, bottom moving along +normal
-        speed1 = random.uniform(3.0, 8.0)
-        speed2 = random.uniform(3.0, 8.0)
+        # base speeds - scale by slice_speed when available for smoother feel
+        sp_base1 = random.uniform(3.0, 6.0)
+        sp_base2 = random.uniform(3.0, 6.0)
+        if slice_speed:
+            try:
+                s = float(slice_speed)
+                sp_base1 = max(2.0, min(10.0, sp_base1 * (1.0 + s * 0.25)))
+                sp_base2 = max(2.0, min(10.0, sp_base2 * (1.0 + s * 0.25)))
+            except Exception:
+                pass
 
         halves.append({
             "x": top_cx - top_final.get_width() / 2,
             "y": top_cy - top_final.get_height() / 2,
-            "vx": (-nx) * speed1 + random.uniform(-1.5, 1.5),
-            "vy": (-ny) * speed1 + random.uniform(-6.0, -2.0),
+            "vx": (-nx) * sp_base1 + random.uniform(-0.9, 0.9),
+            "vy": (-ny) * sp_base1 + random.uniform(-4.0, -1.5),
             "img": top_final,
-            "angle": random.uniform(-8, 8),
+            "angle": math.degrees(math.atan2(-ny, -nx)) + random.uniform(-12, 12),
             "avel": random.uniform(-6, -2),
             "alpha": 255,
             "life": life,
             "max_life": life,
+            # smoothing fields for first frames
+            "vel_smooth_frames": 6,
+            "target_vx": (-nx) * sp_base1,
+            "target_vy": (-ny) * sp_base1,
         })
 
         halves.append({
             "x": bot_cx - bottom_final.get_width() / 2,
             "y": bot_cy - bottom_final.get_height() / 2,
-            "vx": (nx) * speed2 + random.uniform(-1.5, 1.5),
-            "vy": (ny) * speed2 + random.uniform(-6.0, -2.0),
+            "vx": (nx) * sp_base2 + random.uniform(-0.9, 0.9),
+            "vy": (ny) * sp_base2 + random.uniform(-4.0, -1.5),
             "img": bottom_final,
-            "angle": random.uniform(-8, 8),
+            "angle": math.degrees(math.atan2(ny, nx)) + random.uniform(-12, 12),
             "avel": random.uniform(2, 6),
             "alpha": 255,
             "life": life,
             "max_life": life,
+            "vel_smooth_frames": 6,
+            "target_vx": (nx) * sp_base2,
+            "target_vy": (ny) * sp_base2,
         })
     except Exception:
         # defensive fallback: use simple vertical halves
@@ -1277,17 +1291,30 @@ while running:
             fx, fy = fruit["x"] + 40, fruit["y"] + 40
             dist = math.hypot(fx - finger_x, fy - finger_y)
             if dist < 40:
-                # compute slice angle from last two finger positions if available
+                # compute a smoothed slice angle and approximate speed from recent finger positions
                 slice_ang = None
+                slice_spd = None
                 try:
                     if len(finger_trail) >= 2:
-                        x1, y1 = finger_trail[-2]
-                        x2, y2 = finger_trail[-1]
-                        dx = x2 - x1
-                        dy = y2 - y1
+                        # use up to last 5 points to reduce noise
+                        n = min(5, len(finger_trail))
+                        x_first, y_first = finger_trail[-n]
+                        x_last, y_last = finger_trail[-1]
+                        dx = x_last - x_first
+                        dy = y_last - y_first
                         slice_ang = math.degrees(math.atan2(dy, dx))
+                        # estimate speed as average per-frame distance across the sampled segment
+                        total_dist = 0.0
+                        for i in range(-n + 1, 0):
+                            x_a, y_a = finger_trail[i - 1]
+                            x_b, y_b = finger_trail[i]
+                            total_dist += math.hypot(x_b - x_a, y_b - y_a)
+                        avg_per_frame = total_dist / max(1, (n - 1))
+                        # normalize speed into a usable multiplier (clamp)
+                        slice_spd = max(0.5, min(6.0, avg_per_frame * 0.5))
                 except Exception:
                     slice_ang = None
+                    slice_spd = None
                 # mainkan suara split (hanya saat buah benar-benar terbelah)
                 try:
                     if split_sound and sfx_on:
@@ -1373,7 +1400,7 @@ while running:
                 except Exception:
                     pass
                 # buat potongan buah dan tambahkan skor
-                split_fruit(fruit, slice_angle=slice_ang)
+                split_fruit(fruit, slice_angle=slice_ang, slice_speed=slice_spd)
                 if fruit in fruits:
                     fruits.remove(fruit)
 
@@ -1829,12 +1856,31 @@ while running:
 
     # Update dan gambar potongan buah (halves)
     for half in halves[:]:
+        # age for smoothing and lifecycle
+        half["age"] = half.get("age", 0) + 1
+
+        # velocity smoothing for initial frames (lerp towards target_vx/target_vy)
+        sf = half.get("vel_smooth_frames", 0)
+        if sf and half.get("age", 0) <= sf:
+            t = float(half.get("age", 0)) / float(sf)
+            try:
+                vx_t = half.get("target_vx", half.get("vx", 0))
+                vy_t = half.get("target_vy", half.get("vy", 0))
+                vx_init = half.get("vx", 0)
+                vy_init = half.get("vy", 0)
+                half["vx"] = vx_init * (1.0 - t) + vx_t * t
+                half["vy"] = vy_init * (1.0 - t) + vy_t * t
+            except Exception:
+                pass
+
         half["x"] += half["vx"]
         half["y"] += half["vy"]
-        half["vy"] += 0.8  # gravitasi lebih ringan untuk efek
+        # lighter gravity for sliced halves
+        half["vy"] += 0.8
 
-        half["angle"] += half["avel"]
-        half["life"] -= 1
+        # rotation and lifetime updates
+        half["angle"] += half.get("avel", 0)
+        half["life"] = half.get("life", 0) - 1
 
         # alpha menurun seiring life tersisa
         if half.get("max_life"):
