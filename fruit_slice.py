@@ -377,6 +377,10 @@ def load_coin_count():
                     globals()["best_streak"] = int(data.get("best_streak", 0))
                 except Exception:
                     globals()["best_streak"] = 0
+                try:
+                    globals()["starter_given"] = bool(data.get("starter_given", False))
+                except Exception:
+                    globals()["starter_given"] = False
         else:
             coin_count = 0
     except Exception:
@@ -409,6 +413,11 @@ def save_coin_count():
             tosave["best_streak"] = int(globals().get("best_streak", 0))
         except Exception:
             tosave["best_streak"] = 0
+        # include starter_given flag if present
+        try:
+            tosave["starter_given"] = bool(globals().get("starter_given", False))
+        except Exception:
+            pass
         with open(coin_data_path, "w", encoding="utf-8") as f:
             json.dump(tosave, f)
     except Exception:
@@ -1078,8 +1087,10 @@ while running:
                         spawn_timer = 0
                         # ensure new players get a small starter coin balance
                         try:
-                            if globals().get("coin_count", 0) < 5:
+                            # only grant starter coins once ever (persisted)
+                            if not globals().get("starter_given", False) and globals().get("coin_count", 0) < 5:
                                 globals()["coin_count"] = 5
+                                globals()["starter_given"] = True
                                 try:
                                     save_coin_count()
                                 except Exception:
